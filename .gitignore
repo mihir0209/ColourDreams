@@ -1,0 +1,113 @@
+# Image Colorization Project - GitHub Ready
+
+# Dataset and Data Files
+dataset/
+processed_data/
+*.zip
+*.tar.gz
+
+# Model Checkpoints and Training Outputs
+checkpoints/
+logs/
+runs/
+wandb/
+*.pth
+*.pt
+*.ckpt
+
+# Python Cache and Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Temporary and Log Files
+*.log
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Images and Media (except examples)
+test_images/
+results/
+outputs/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+!example_images/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Node modules (if any frontend tools are used)
+node_modules/
+
+# Backend specific
+backend/
+
+# Documentation build
+docs/_build/
+
+# PyTorch specific
+*.pth
+*.pt
+lightning_logs/
+
+# MLflow
+mlruns/
+
+# Weights & Biases
+wandb/
+
+# Large files
+*.h5
+*.hdf5
+*.pickle
+*.pkl
+
+# DevRunner
+.RUNconfig/
