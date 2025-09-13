@@ -306,7 +306,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Authors
 
-- **MiHiR** - *Initial work* - [YourProfile](https://github.com/mihir0209)
+- **MiHiR** - *Initial work* - [mihir0209](https://github.com/mihir0209)
 
 ## 🙏 Acknowledgments
 
