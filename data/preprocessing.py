@@ -139,7 +139,8 @@ def prepare_dataset(data_dir, output_dir):
     print(f"Dataset splits saved to {output_dir}/dataset_splits.json")
     return train_paths, val_paths, test_paths
 
-def create_data_loaders(data_dir, splits_file, batch_size=32, num_workers=4):
+def create_data_loaders(data_dir, splits_file, batch_size=32, num_workers=4, 
+                       pin_memory=True, persistent_workers=False, prefetch_factor=2):
     """Create data loaders for training."""
     
     # Load splits
@@ -158,13 +159,16 @@ def create_data_loaders(data_dir, splits_file, batch_size=32, num_workers=4):
     val_dataset = ColorDataset(splits['val'], transform=None, mode='val')
     test_dataset = ColorDataset(splits['test'], transform=None, mode='test')
     
-    # Create data loaders
+    # Create data loaders with optimizations
     train_loader = DataLoader(
         train_dataset, 
         batch_size=batch_size, 
         shuffle=True, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers and num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        drop_last=True  # Consistent batch sizes for GPU
     )
     
     val_loader = DataLoader(
@@ -172,7 +176,9 @@ def create_data_loaders(data_dir, splits_file, batch_size=32, num_workers=4):
         batch_size=batch_size, 
         shuffle=False, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers and num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None
     )
     
     test_loader = DataLoader(
@@ -180,7 +186,9 @@ def create_data_loaders(data_dir, splits_file, batch_size=32, num_workers=4):
         batch_size=batch_size, 
         shuffle=False, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers and num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None
     )
     
     return train_loader, val_loader, test_loader

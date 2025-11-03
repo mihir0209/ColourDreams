@@ -95,6 +95,7 @@ docs/_build/
 # PyTorch specific
 *.pth
 *.pt
+pretrained/*.pth
 lightning_logs/
 
 # MLflow
