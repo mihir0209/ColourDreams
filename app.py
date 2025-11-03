@@ -1,12 +1,11 @@
 """
-Flask backend for image colorization service.
-Handles image upload, processing, and inference using the trained Tiny ImageNet model.
+Flask backend for VGG16-based image colorization service.
+Simple and efficient colorization using pretrained VGG16.
 """
 
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import torch
-import cv2
 import numpy as np
 from PIL import Image
 import io
@@ -15,9 +14,6 @@ import os
 import sys
 import logging
 from werkzeug.utils import secure_filename
-import tempfile
-from pathlib import Path
-# from direct_inference import DirectModelInference
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -49,39 +45,18 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def init_model():
-    """Initialize the colorization model."""
+    """Initialize the VGG16 colorization model."""
     global inference_model
     
     try:
-        # Initialize the deep learning colorization model
-        logger.info("🚀 Initializing advanced colorization model...")
-        
+        logger.info("🎨 Initializing VGG16 colorization model...")
         inference_model = ColorizationInference()
-        logger.info("✅ Model loaded successfully!")
-            
+        logger.info("✅ Model ready!")
         return True
         
     except Exception as e:
-        logger.error(f"Error initializing models: {e}")
+        logger.error(f"Error initializing model: {e}")
         return False
-
-def image_to_base64(image):
-    """Convert PIL Image to base64 string."""
-    try:
-        buffer = io.BytesIO()
-        if image.mode == 'L':
-            image.save(buffer, format='PNG')
-        else:
-            image.save(buffer, format='JPEG')
-        buffer.seek(0)
-        
-        image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        format_type = 'png' if image.mode == 'L' else 'jpeg'
-        return f"data:image/{format_type};base64,{image_base64}"
-        
-    except Exception as e:
-        logger.error(f"Error converting image to base64: {e}")
-        return None
 
 @app.route('/')
 def home():
@@ -93,8 +68,7 @@ def health_check():
     """Health check endpoint."""
     return jsonify({
         "status": "healthy",
-        "model_loaded": inference_model is not None,
-        "trained_model_loaded": inference_model is not None
+        "model_loaded": inference_model is not None
     })
 
 @app.route('/model-info', methods=['GET'])
@@ -104,34 +78,30 @@ def model_info():
         return jsonify({"error": "Model not loaded"}), 503
     
     return jsonify({
-        "model_type": "Deep Encoder-Decoder Network",
-        "architecture": "Advanced skip-connection colorization model",
+        "model_type": "VGG16 Colorization Network",
+        "architecture": "VGG16 + Decoder",
         "device": str(inference_model.device),
-        "input_size": "256x256 (auto-resized)",
+        "input_size": "256x256",
         "color_space": "LAB"
     })
 
 @app.route('/colorize', methods=['POST'])
 def colorize_image():
-    """Colorize an uploaded image."""
+    """Colorize an uploaded image using VGG16."""
     try:
-        # Check if any model is available
         if inference_model is None:
-            return jsonify({"error": "No colorization models available"}), 503
+            return jsonify({"error": "Model not loaded"}), 503
         
-        # Check if file is present
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
         
         file = request.files['file']
         
-        # Check if file is selected
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
         
-        # Check file type
         if not allowed_file(file.filename):
-            return jsonify({"error": "Invalid file type. Allowed: PNG, JPG, JPEG, GIF, BMP"}), 400
+            return jsonify({"error": "Invalid file type"}), 400
         
         # Save uploaded file temporarily
         filename = secure_filename(file.filename)
@@ -139,120 +109,40 @@ def colorize_image():
         file.save(temp_path)
         
         try:
-            # Load original image for comparison
+            # Load image
             original_image = Image.open(temp_path).convert('RGB')
-            original_size = original_image.size
             
-            # Create grayscale version
-            grayscale_image = original_image.convert('L')
+            # Colorize
+            colorized_image = inference_model.colorize_image(original_image)
             
-            # Use your trained model
-            colorized_image, error = inference_model.colorize_image(temp_path)
-            if error:
-                return jsonify({"error": f"Colorization failed: {error}"}), 500
+            # Convert original to base64
+            original_buffer = io.BytesIO()
+            original_image.save(original_buffer, format='JPEG')
+            original_b64 = base64.b64encode(original_buffer.getvalue()).decode('utf-8')
             
-            method_used = "Advanced Deep Learning Model"
+            # Convert colorized to base64
+            colorized_buffer = io.BytesIO()
+            colorized_image.save(colorized_buffer, format='JPEG')
+            colorized_b64 = base64.b64encode(colorized_buffer.getvalue()).decode('utf-8')
             
-            # Convert images to base64 for web display
-            results = {
-                'original': image_to_base64(original_image),
-                'grayscale': image_to_base64(grayscale_image),
-                'colorized': image_to_base64(colorized_image)
-            }
-            
-            # Clean up temp file
+            # Clean up
             os.remove(temp_path)
             
             return jsonify({
-                "success": True,
-                "images": results,
-                "message": f"Image colorized successfully using {method_used}",
-                "original_size": original_size,
-                "method": method_used
+                "status": "success",
+                "original_base64": original_b64,
+                "colorized_base64": colorized_b64,
+                "message": "Image colorized successfully with VGG16"
             })
             
         except Exception as e:
-            # Clean up temp file if error occurs
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             raise e
             
     except Exception as e:
-        logger.error(f"Error in colorize endpoint: {e}")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
-
-@app.route('/colorize-batch', methods=['POST'])
-def colorize_batch():
-    """Colorize multiple images."""
-    try:
-        # Check if model is loaded
-        if inference_model is None:
-            return jsonify({"error": "Model not initialized"}), 503
-        
-        # Check if files are present
-        if 'files' not in request.files:
-            return jsonify({"error": "No files uploaded"}), 400
-        
-        files = request.files.getlist('files')
-        
-        if not files or all(f.filename == '' for f in files):
-            return jsonify({"error": "No files selected"}), 400
-        
-        results = []
-        
-        for i, file in enumerate(files):
-            if file and allowed_file(file.filename):
-                try:
-                    # Save uploaded file temporarily
-                    filename = secure_filename(file.filename)
-                    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"batch_{i}_{filename}")
-                    file.save(temp_path)
-                    
-                    # Load original image
-                    original_image = Image.open(temp_path).convert('RGB')
-                    grayscale_image = original_image.convert('L')
-                    
-                    # Colorize
-                    colorized_image, error = inference_model.colorize_image(temp_path)
-                    if error:
-                        raise RuntimeError(error)
-                    
-                    # Convert to base64
-                    result = {
-                        'filename': filename,
-                        'original': image_to_base64(original_image),
-                        'grayscale': image_to_base64(grayscale_image),
-                        'colorized': image_to_base64(colorized_image),
-                        'success': True
-                    }
-                    
-                    results.append(result)
-                    
-                    # Clean up
-                    os.remove(temp_path)
-                    
-                except Exception as e:
-                    logger.error(f"Error processing {file.filename}: {e}")
-                    results.append({
-                        'filename': file.filename,
-                        'success': False,
-                        'error': str(e)
-                    })
-                    
-                    # Clean up on error
-                    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"batch_{i}_{filename}")
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-        
-        return jsonify({
-            "success": True,
-            "message": f"Processed {len(results)} images",
-            "results": results
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in batch colorize endpoint: {e}")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+        logger.error(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.errorhandler(413)
 def too_large(e):
@@ -271,11 +161,15 @@ def internal_error(e):
 
 if __name__ == "__main__":
     # Initialize model on startup
-    print("Initializing colorization model...")
+    print("\n" + "="*50)
+    print("🎨 VGG16 Image Colorization Server")
+    print("="*50)
+    print("Initializing model...")
     if init_model():
         print("✓ Model loaded successfully!")
-        print("Starting Flask server...")
+        print("\n🚀 Starting Flask server on http://localhost:5000")
+        print("="*50 + "\n")
         app.run(host='0.0.0.0', port=5000, debug=True)
     else:
-        print("✗ Failed to load model. Please check the model file path.")
-        print("Expected model location: models/best_tiny_imagenet_colorization_model.pth")
+        print("✗ Failed to load model.")
+        sys.exit(1)

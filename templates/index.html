@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Image Colorization - VGG16 + Custom CNN</title>
+    <title>AI Image Colorization - Transform Black & White to Color</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -11,334 +14,605 @@
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
-    <!-- Custom CSS -->
-    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --dark-bg: #1a1a2e;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(to bottom, #f8f9fa, #e9ecef);
+            min-height: 100vh;
+        }
+        
+        .navbar {
+            background: var(--dark-bg) !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 1rem 0;
+        }
+        
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .navbar-brand i {
+            -webkit-text-fill-color: #667eea;
+        }
+        
+        .hero-section {
+            background: var(--primary-gradient);
+            padding: 80px 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.3;
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .hero-subtitle {
+            font-size: 1.3rem;
+            font-weight: 300;
+            opacity: 0.95;
+        }
+        
+        .upload-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 3rem;
+            margin-top: -60px;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: rgba(102, 126, 234, 0.1);
+            transform: translateY(-2px);
+        }
+        
+        .upload-area.dragover {
+            border-color: #4facfe;
+            background: rgba(79, 172, 254, 0.1);
+        }
+        
+        .upload-icon {
+            font-size: 4rem;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        
+        .btn-colorize {
+            background: var(--primary-gradient);
+            border: none;
+            padding: 1rem 3rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 50px;
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+            margin-top: 2rem;
+        }
+        
+        .btn-colorize:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(102, 126, 234, 0.6);
+        }
+        
+        .result-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .result-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+        }
+        
+        .result-header {
+            padding: 1rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            text-align: center;
+            color: white;
+        }
+        
+        .result-header.original {
+            background: var(--primary-gradient);
+        }
+        
+        .result-header.colorized {
+            background: var(--success-gradient);
+        }
+        
+        .result-image {
+            width: 100%;
+            height: 400px;
+            object-fit: contain;
+            background: #f8f9fa;
+            padding: 1rem;
+        }
+        
+        .loading-spinner {
+            position: relative;
+            margin: 3rem auto;
+            width: 80px;
+            height: 80px;
+        }
+        
+        .spinner-circle {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid transparent;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .spinner-circle:nth-child(2) {
+            border-top-color: #764ba2;
+            animation-duration: 0.75s;
+            animation-direction: reverse;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .feature-box {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            height: 100%;
+            border: 2px solid transparent;
+        }
+        
+        .feature-box:hover {
+            border-color: #667eea;
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+        
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .action-btn {
+            padding: 0.8rem 2rem;
+            border-radius: 50px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 0.5rem;
+        }
+        
+        .btn-try-again {
+            background: var(--secondary-gradient);
+            border: none;
+            color: white;
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);
+        }
+        
+        .btn-try-again:hover {
+            transform: translateY(-2px);
+            color: white;
+        }
+        
+        .btn-download {
+            background: var(--success-gradient);
+            border: none;
+            color: white;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+        
+        .btn-download:hover {
+            transform: translateY(-2px);
+            color: white;
+        }
+        
+        footer {
+            background: var(--dark-bg);
+            color: white;
+            padding: 2rem 0;
+            margin-top: 5rem;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .file-input-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .file-name {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 10px;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tech-badge {
+            display: inline-block;
+            padding: 0.5rem 1.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50px;
+            margin: 0.5rem;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+        }
+    </style>
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="#">
                 <i class="fas fa-palette me-2"></i>
-                AI Image Colorization
+                AI Colorizer
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="#features">Features</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#about">About</a>
-                    </li>
-                </ul>
+            <div class="ms-auto">
+                <span class="text-white-50">
+                    <i class="fas fa-brain me-2"></i>Powered by VGG16
+                </span>
             </div>
         </div>
     </nav>
 
     <!-- Hero Section -->
-    <section class="hero-section bg-gradient text-white py-5">
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-lg-6">
-                    <h1 class="display-4 fw-bold mb-4">
-                        Transform Grayscale to <span class="text-warning">Vibrant Colors</span>
-                    </h1>
-                    <p class="lead mb-4">
-                        Using state-of-the-art deep learning with VGG16 feature extraction and custom CNN architecture
-                        to bring your black and white photos to life.
-                    </p>
-                    <div class="tech-badges">
-                        <span class="badge bg-primary me-2 p-2">VGG16 Transfer Learning</span>
-                        <span class="badge bg-success me-2 p-2">LAB Color Space</span>
-                        <span class="badge bg-info me-2 p-2">Custom CNN</span>
-                        <span class="badge bg-warning text-dark p-2">PyTorch</span>
-                    </div>
-                </div>
-                <div class="col-lg-6">
-                    <div class="text-center">
-                        <i class="fas fa-image display-1 mb-3 text-warning"></i>
-                        <p class="fs-5">Upload your grayscale image and watch the magic happen!</p>
-                    </div>
+    <section class="hero-section text-white">
+        <div class="container hero-content">
+            <div class="text-center">
+                <h1 class="hero-title">Transform Your Photos with AI</h1>
+                <p class="hero-subtitle">
+                    Bring black & white images to life with VGG16 deep learning
+                </p>
+                <div class="mt-4">
+                    <span class="tech-badge"><i class="fas fa-brain me-2"></i>VGG16 Network</span>
+                    <span class="tech-badge"><i class="fas fa-microscope me-2"></i>LAB Color Space</span>
+                    <span class="tech-badge"><i class="fas fa-bolt me-2"></i>Fast Processing</span>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Main Upload Section -->
-    <section class="upload-section py-5">
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-lg-8">
-                    <div class="card shadow-lg border-0">
-                        <div class="card-header bg-dark text-white text-center py-3">
-                            <h3 class="mb-0">
-                                <i class="fas fa-upload me-2"></i>
-                                Upload Your Image
-                            </h3>
-                        </div>
-                        <div class="card-body p-4">
-                            <!-- Upload Form -->
-                            <form id="uploadForm" enctype="multipart/form-data">
-                                <div class="mb-4">
-                                    <label for="imageFile" class="form-label fw-bold">
-                                        Choose a grayscale image to colorize:
-                                    </label>
-                                    <input type="file" 
-                                           class="form-control form-control-lg" 
-                                           id="imageFile" 
-                                           name="file" 
-                                           accept="image/*" 
-                                           required>
-                                    <div class="form-text">
-                                        <i class="fas fa-info-circle me-1"></i>
-                                        Supported formats: JPG, PNG, JPEG. Images will be resized to 224×224 pixels.
-                                    </div>
-                                </div>
-                                
-                                <div class="d-grid">
-                                    <button type="submit" class="btn btn-primary btn-lg" id="colorizeBtn">
-                                        <i class="fas fa-magic me-2"></i>
-                                        Colorize Image
-                                    </button>
-                                </div>
-                            </form>
-
-                            <!-- Loading Spinner -->
-                            <div id="loadingSpinner" class="text-center py-4" style="display: none;">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                                <p class="mt-3 text-muted">Processing your image with AI magic... ✨</p>
-                            </div>
-
-                            <!-- Error Alert -->
-                            <div id="errorAlert" class="alert alert-danger mt-3" style="display: none;">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                <span id="errorMessage"></span>
-                            </div>
-                        </div>
+    <!-- Upload Section -->
+    <section class="container">
+        <div class="upload-card fade-in">
+            <h2 class="text-center mb-4" style="color: #667eea;">
+                <i class="fas fa-cloud-upload-alt me-2"></i>
+                Upload Your Image
+            </h2>
+            
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="upload-area" id="uploadArea">
+                    <div class="file-input-wrapper">
+                        <i class="fas fa-images upload-icon"></i>
+                        <h4>Drag & Drop or Click to Upload</h4>
+                        <p class="text-muted">Supports JPG, PNG, JPEG formats</p>
+                        <input type="file" id="imageFile" name="file" accept="image/*" required>
                     </div>
                 </div>
+                
+                <div id="fileName" class="file-name text-center" style="display: none;">
+                    <i class="fas fa-file-image me-2"></i>
+                    <span id="fileNameText"></span>
+                </div>
+                
+                <div class="text-center">
+                    <button type="submit" class="btn btn-colorize" id="colorizeBtn">
+                        <i class="fas fa-magic me-2"></i>
+                        Colorize My Image
+                    </button>
+                </div>
+            </form>
+
+            <!-- Loading -->
+            <div id="loadingSpinner" class="text-center" style="display: none;">
+                <div class="loading-spinner">
+                    <div class="spinner-circle"></div>
+                    <div class="spinner-circle"></div>
+                </div>
+                <h4 style="color: #667eea;">
+                    <i class="fas fa-magic me-2"></i>
+                    AI is working its magic...
+                </h4>
+                <p class="text-muted">Processing with VGG16 neural network</p>
+            </div>
+
+            <!-- Error -->
+            <div id="errorAlert" class="alert alert-danger mt-4" style="display: none; border-radius: 15px;">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <strong>Oops!</strong> <span id="errorMessage"></span>
             </div>
         </div>
     </section>
 
     <!-- Results Section -->
-    <section id="resultsSection" class="results-section py-5" style="display: none;">
-        <div class="container">
-            <div class="row">
-                <div class="col-12">
-                    <h2 class="text-center mb-5">
-                        <i class="fas fa-star text-warning me-2"></i>
-                        Colorization Results
-                    </h2>
+    <section id="resultsSection" class="container" style="display: none; margin-top: 4rem;">
+        <div class="text-center mb-5 fade-in">
+            <h2 style="color: #667eea;">
+                <i class="fas fa-star me-2"></i>
+                Amazing Results!
+            </h2>
+            <p class="text-muted">Your image has been beautifully colorized</p>
+        </div>
+        
+        <div class="row g-4 mb-4">
+            <div class="col-lg-6">
+                <div class="result-card fade-in">
+                    <div class="result-header original">
+                        <i class="fas fa-image me-2"></i>
+                        Original Grayscale
+                    </div>
+                    <img id="originalImage" src="" alt="Original" class="result-image">
                 </div>
             </div>
             
-            <div class="row g-4">
-                <!-- Original Image -->
-                <div class="col-lg-6 col-md-6">
-                    <div class="result-card h-100">
-                        <div class="card shadow border-0 h-100">
-                            <div class="card-header bg-secondary text-white text-center">
-                                <h5 class="mb-0">
-                                    <i class="fas fa-image me-2"></i>
-                                    Original Image
-                                </h5>
-                            </div>
-                            <div class="card-body p-0">
-                                <img id="originalImage" src="" alt="Original" class="img-fluid w-100">
-                            </div>
-                        </div>
+            <div class="col-lg-6">
+                <div class="result-card fade-in">
+                    <div class="result-header colorized">
+                        <i class="fas fa-palette me-2"></i>
+                        AI Colorized
                     </div>
-                </div>
-
-                <!-- Grayscale Version -->
-                <div class="col-lg-6 col-md-6">
-                    <div class="result-card h-100">
-                        <div class="card shadow border-0 h-100">
-                            <div class="card-header bg-dark text-white text-center">
-                                <h5 class="mb-0">
-                                    <i class="fas fa-adjust me-2"></i>
-                                    Grayscale Input
-                                </h5>
-                            </div>
-                            <div class="card-body p-0">
-                                <img id="grayscaleImage" src="" alt="Grayscale" class="img-fluid w-100">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Colorized Result -->
-                <div class="col-lg-6 col-md-6">
-                    <div class="result-card h-100">
-                        <div class="card shadow border-0 h-100">
-                            <div class="card-header bg-success text-white text-center">
-                                <h5 class="mb-0">
-                                    <i class="fas fa-palette me-2"></i>
-                                    AI Colorized Result
-                                </h5>
-                            </div>
-                            <div class="card-body p-0">
-                                <img id="colorizedImage" src="" alt="Colorized" class="img-fluid w-100">
-                            </div>
-                            <div class="card-footer text-center bg-light">
-                                <small class="text-muted">Generated using VGG16 + Custom CNN</small>
-                            </div>
-                        </div>
+                    <img id="colorizedImage" src="" alt="Colorized" class="result-image">
+                    <div class="p-3 text-center bg-light">
+                        <small class="text-muted">
+                            <i class="fas fa-check-circle text-success me-1"></i>
+                            Processed with VGG16 Deep Learning
+                        </small>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Action Buttons -->
-            <div class="row mt-4">
-                <div class="col-12 text-center">
-                    <button class="btn btn-outline-primary me-3" onclick="tryAnother()">
-                        <i class="fas fa-redo me-2"></i>
-                        Try Another Image
-                    </button>
-                    <button class="btn btn-outline-success" onclick="downloadResults()">
-                        <i class="fas fa-download me-2"></i>
-                        Download Results
-                    </button>
-                </div>
-            </div>
+        <div class="text-center">
+            <button class="btn action-btn btn-try-again" onclick="tryAnother()">
+                <i class="fas fa-redo me-2"></i>
+                Try Another Image
+            </button>
+            <button class="btn action-btn btn-download" onclick="downloadImage()">
+                <i class="fas fa-download me-2"></i>
+                Download Result
+            </button>
         </div>
     </section>
 
     <!-- Features Section -->
-    <section id="features" class="features-section py-5 bg-light">
-        <div class="container">
-            <div class="row">
-                <div class="col-12 text-center mb-5">
-                    <h2 class="fw-bold">Technology Features</h2>
-                    <p class="text-muted">State-of-the-art deep learning for image colorization</p>
-                </div>
-            </div>
-            <div class="row g-4">
-                <div class="col-lg-3 col-md-6">
-                    <div class="feature-card text-center p-4">
-                        <div class="feature-icon mb-3">
-                            <i class="fas fa-brain fa-3x text-primary"></i>
-                        </div>
-                        <h5>VGG16 Features</h5>
-                        <p class="text-muted">Pre-trained VGG16 network for robust feature extraction</p>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-md-6">
-                    <div class="feature-card text-center p-4">
-                        <div class="feature-icon mb-3">
-                            <i class="fas fa-cogs fa-3x text-success"></i>
-                        </div>
-                        <h5>Custom CNN</h5>
-                        <p class="text-muted">Custom-designed CNN for A&B channel prediction</p>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-md-6">
-                    <div class="feature-card text-center p-4">
-                        <div class="feature-icon mb-3">
-                            <i class="fas fa-eye fa-3x text-info"></i>
-                        </div>
-                        <h5>LAB Color Space</h5>
-                        <p class="text-muted">Perceptually uniform LAB color space for better results</p>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-md-6">
-                    <div class="feature-card text-center p-4">
-                        <div class="feature-icon mb-3">
-                            <i class="fas fa-rocket fa-3x text-warning"></i>
-                        </div>
-                        <h5>Fast Processing</h5>
-                        <p class="text-muted">Optimized inference for quick colorization results</p>
-                    </div>
-                </div>
-            </div>
+    <section class="container my-5 py-5">
+        <div class="text-center mb-5">
+            <h2 style="color: #667eea;">Why Choose Our AI Colorizer?</h2>
+            <p class="text-muted">Powered by cutting-edge deep learning</p>
         </div>
-    </section>
-
-    <!-- About Section -->
-    <section id="about" class="about-section py-5">
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-lg-6">
-                    <h2 class="fw-bold mb-4">About This Project</h2>
-                    <p class="lead">
-                        This image colorization system uses transfer learning with VGG16 as a feature extractor,
-                        combined with a custom CNN architecture trained on the Tiny-ImageNet dataset.
-                    </p>
-                    <ul class="list-unstyled">
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success me-2"></i>
-                            <strong>Dataset:</strong> Tiny-ImageNet (200 classes, 100K images)
-                        </li>
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success me-2"></i>
-                            <strong>Architecture:</strong> VGG16 + Custom CNN
-                        </li>
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success me-2"></i>
-                            <strong>Color Space:</strong> LAB for perceptual accuracy
-                        </li>
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success me-2"></i>
-                            <strong>Framework:</strong> PyTorch + Flask
-                        </li>
-                    </ul>
+        
+        <div class="row g-4">
+            <div class="col-lg-3 col-md-6">
+                <div class="feature-box">
+                    <i class="fas fa-brain feature-icon"></i>
+                    <h5>VGG16 Network</h5>
+                    <p class="text-muted">Industry-standard architecture for feature extraction</p>
                 </div>
-                <div class="col-lg-6">
-                    <div class="text-center">
-                        <div class="architecture-diagram p-4 bg-light rounded">
-                            <h5 class="mb-3">Model Architecture</h5>
-                            <div class="diagram-flow">
-                                <div class="diagram-step mb-2">
-                                    <span class="badge bg-secondary p-2">Grayscale Input (L channel)</span>
-                                </div>
-                                <div class="diagram-arrow">↓</div>
-                                <div class="diagram-step mb-2">
-                                    <span class="badge bg-primary p-2">VGG16 Feature Extractor</span>
-                                </div>
-                                <div class="diagram-arrow">↓</div>
-                                <div class="diagram-step mb-2">
-                                    <span class="badge bg-success p-2">Custom CNN Decoder</span>
-                                </div>
-                                <div class="diagram-arrow">↓</div>
-                                <div class="diagram-step mb-2">
-                                    <span class="badge bg-warning text-dark p-2">A & B Channels</span>
-                                </div>
-                                <div class="diagram-arrow">↓</div>
-                                <div class="diagram-step">
-                                    <span class="badge bg-info p-2">RGB Colorized Image</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6">
+                <div class="feature-box">
+                    <i class="fas fa-tachometer-alt feature-icon"></i>
+                    <h5>Fast Processing</h5>
+                    <p class="text-muted">Get results in seconds</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6">
+                <div class="feature-box">
+                    <i class="fas fa-palette feature-icon"></i>
+                    <h5>Natural Colors</h5>
+                    <p class="text-muted">LAB color space for accurate colorization</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6">
+                <div class="feature-box">
+                    <i class="fas fa-shield-alt feature-icon"></i>
+                    <h5>Private & Secure</h5>
+                    <p class="text-muted">Images processed securely</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Footer -->
-    <footer class="bg-dark text-white py-4">
-        <div class="container">
-            <div class="row">
-                <div class="col-12 text-center">
-                    <p class="mb-0">
-                        &copy; 2024 AI Image Colorization Project. 
-                        Built with <i class="fas fa-heart text-danger"></i> using PyTorch, Flask, and Bootstrap.
-                    </p>
-                </div>
-            </div>
+    <footer>
+        <div class="container text-center">
+            <p class="mb-2">
+                <i class="fas fa-heart text-danger me-2"></i>
+                Built with PyTorch, VGG16, and Flask
+            </p>
+            <p class="text-white-50 mb-0">&copy; 2024 AI Colorization</p>
         </div>
     </footer>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
-    <!-- Custom JS -->
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const imageFile = document.getElementById('imageFile');
+        const uploadForm = document.getElementById('uploadForm');
+        const fileName = document.getElementById('fileName');
+        const fileNameText = document.getElementById('fileNameText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const errorAlert = document.getElementById('errorAlert');
+        const resultsSection = document.getElementById('resultsSection');
+        const colorizeBtn = document.getElementById('colorizeBtn');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                imageFile.files = files;
+                showFileName(files[0].name);
+            }
+        });
+
+        imageFile.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                showFileName(e.target.files[0].name);
+            }
+        });
+
+        function showFileName(name) {
+            fileNameText.textContent = name;
+            fileName.style.display = 'block';
+        }
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const file = imageFile.files[0];
+            
+            if (!file) {
+                showError('Please select an image first!');
+                return;
+            }
+            
+            formData.append('file', file);
+            resultsSection.style.display = 'none';
+            errorAlert.style.display = 'none';
+            colorizeBtn.disabled = true;
+            loadingSpinner.style.display = 'block';
+            
+            try {
+                const response = await fetch('/colorize', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    document.getElementById('originalImage').src = 'data:image/jpeg;base64,' + data.original_base64;
+                    document.getElementById('colorizedImage').src = 'data:image/jpeg;base64,' + data.colorized_base64;
+                    resultsSection.style.display = 'block';
+                    resultsSection.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    showError(data.message || 'Failed to colorize image');
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+                console.error('Error:', error);
+            } finally {
+                loadingSpinner.style.display = 'none';
+                colorizeBtn.disabled = false;
+            }
+        });
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            errorAlert.style.display = 'block';
+            errorAlert.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function tryAnother() {
+            resultsSection.style.display = 'none';
+            uploadForm.reset();
+            fileName.style.display = 'none';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function downloadImage() {
+            const img = document.getElementById('colorizedImage');
+            const link = document.createElement('a');
+            link.href = img.src;
+            link.download = 'colorized_image.jpg';
+            link.click();
+        }
+    </script>
 </body>
 </html>

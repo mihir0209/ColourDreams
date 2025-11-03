@@ -1,129 +1,87 @@
 """
-Clean inference pipeline for image colorization.
-Handles image preprocessing, model inference, and postprocessing.
+Inference pipeline using official richzhang/colorization models
 """
 
-from __future__ import annotations
-
-from typing import Optional, Tuple, Union
+import torch
+import numpy as np
+from PIL import Image
+import sys
 from pathlib import Path
 
-import numpy as np
-import torch
-import torch.nn.functional as F
-from PIL import Image
-from skimage import color
+# Add colorizers to path
+colorizers_path = Path(__file__).parent / "colorizers"
+sys.path.insert(0, str(colorizers_path))
 
 from models.colorization_model import create_model
+import colorizers
 
 
 class ColorizationInference:
-    """Main inference class for image colorization."""
+    """Inference wrapper using official pretrained colorization"""
     
-    def __init__(self, model_path: Optional[str] = None, device: Optional[str] = None):
-        """Initialize the inference pipeline.
-        
-        Args:
-            model_path: Optional path to model weights. If None, uses default.
-            device: Device to run on ('cuda', 'cpu', or None for auto-detect)
+    def __init__(self, device=None):
         """
-        self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
-        
-        # Create and load model
-        self.model, _ = create_model(pretrained=True, device=self.device)
-        self.model.eval()
-        
-        print(f"Inference ready on {self.device}")
-    
-    def _load_image(self, image_input: Union[str, Image.Image, np.ndarray]) -> np.ndarray:
-        """Load image from various input types."""
-        if isinstance(image_input, str):
-            img = np.asarray(Image.open(image_input))
-        elif isinstance(image_input, Image.Image):
-            img = np.asarray(image_input.convert('RGB'))
-        else:
-            img = np.asarray(image_input)
-        
-        # Ensure RGB
-        if img.ndim == 2:
-            img = np.tile(img[:, :, None], 3)
-        
-        return img
-    
-    def _resize_image(self, img: np.ndarray, target_size: Tuple[int, int] = (256, 256)) -> np.ndarray:
-        """Resize image to target size."""
-        pil_img = Image.fromarray(img)
-        resized = pil_img.resize((target_size[1], target_size[0]), resample=Image.Resampling.LANCZOS)
-        return np.asarray(resized)
-    
-    def _preprocess(self, img_rgb: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor, np.ndarray]:
-        """Preprocess RGB image to L channel tensors."""
-        # Get original and resized versions
-        img_rgb_resized = self._resize_image(img_rgb, (256, 256))
-        
-        # Convert to LAB
-        img_lab_orig = color.rgb2lab(img_rgb)
-        img_lab_resized = color.rgb2lab(img_rgb_resized)
-        
-        # Extract L channels
-        img_l_orig = img_lab_orig[:, :, 0]
-        img_l_resized = img_lab_resized[:, :, 0]
-        
-        # Convert to tensors
-        tens_orig_l = torch.Tensor(img_l_orig)[None, None, :, :]
-        tens_resized_l = torch.Tensor(img_l_resized)[None, None, :, :]
-        
-        return tens_orig_l, tens_resized_l, img_rgb
-    
-    def _postprocess(self, tens_orig_l: torch.Tensor, out_ab: torch.Tensor) -> np.ndarray:
-        """Combine L and predicted AB channels to create RGB image."""
-        HW_orig = tens_orig_l.shape[2:]
-        HW = out_ab.shape[2:]
-        
-        # Resize AB to match original if needed
-        if HW_orig[0] != HW[0] or HW_orig[1] != HW[1]:
-            out_ab_orig = F.interpolate(out_ab, size=HW_orig, mode='bilinear', align_corners=False)
-        else:
-            out_ab_orig = out_ab
-        
-        # Combine L and AB
-        out_lab_orig = torch.cat((tens_orig_l, out_ab_orig), dim=1)
-        
-        # Convert to RGB
-        rgb_output = color.lab2rgb(out_lab_orig.data.cpu().numpy()[0, ...].transpose((1, 2, 0)))
-        
-        return rgb_output
-    
-    def colorize_image(self, image: Union[str, Image.Image, np.ndarray]) -> Tuple[Optional[Image.Image], Optional[str]]:
-        """Colorize an image.
+        Initialize the colorization model
         
         Args:
-            image: Input image (path, PIL Image, or numpy array)
+            device: Device to run on (auto-detected if None)
+            model_type: 'eccv16' or 'siggraph17'
+        """
+        if device is None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(device)
+
+        print(f"Initializing colorization model on {self.device}...")
+        self.model = create_model(device=str(self.device))
+        print("Model ready!")
         
+    def colorize_image(self, image):
+        """
+        Colorize an image using the official model
+        
+        Args:
+            image: PIL Image (RGB or grayscale)
+            
         Returns:
-            Tuple of (colorized PIL Image, error message)
+            Colorized PIL Image
         """
-        try:
-            # Load and preprocess
-            img_rgb = self._load_image(image)
-            tens_orig_l, tens_resized_l, _ = self._preprocess(img_rgb)
-            
-            # Move to device
-            tens_orig_l = tens_orig_l.to(self.device)
-            tens_resized_l = tens_resized_l.to(self.device)
-            
-            # Inference
-            with torch.no_grad():
-                out_ab = self.model(tens_resized_l)
-            
-            # Postprocess
-            rgb_output = self._postprocess(tens_orig_l, out_ab)
-            rgb_output = np.clip(rgb_output, 0.0, 1.0)
-            
-            # Convert to PIL
-            colorized_img = Image.fromarray((rgb_output * 255).astype(np.uint8))
-            
-            return colorized_img, None
-            
-        except Exception as e:
-            return None, str(e)
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Convert to numpy array (always RGB)
+        img_np = np.array(image)
+
+        # Use official preprocessing that handles resizing and LAB conversion
+        tens_l_orig, tens_l_rs = colorizers.preprocess_img(img_np, HW=(256, 256))
+        tens_l_rs = tens_l_rs.to(self.device)
+
+        # Run inference on resized L channel
+        with torch.no_grad():
+            out_ab = self.model(tens_l_rs)
+
+        # Convert network output back to original resolution
+        img_rgb = colorizers.postprocess_tens(tens_l_orig, out_ab.cpu())
+
+        # Convert to uint8 image
+        img_rgb_uint8 = (np.clip(img_rgb, 0, 1) * 255).astype(np.uint8)
+
+        return Image.fromarray(img_rgb_uint8)
+
+
+if __name__ == "__main__":
+    print("Testing colorization inference...")
+    
+    # Create inference object
+    inference = ColorizationInference(device='cpu')
+    
+    # Create test image
+    test_img = Image.new('RGB', (256, 256), color=(128, 128, 128))
+    
+    # Colorize
+    result = inference.colorize_image(test_img)
+    
+    print(f"Input: {test_img.size}")
+    print(f"Output: {result.size}")
+    print("✓ Inference working!")

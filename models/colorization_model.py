@@ -1,155 +1,193 @@
-"""
-Model architecture for image colorization using deep encoder-decoder network.
-Advanced architecture with skip connections for high-quality colorization.
-"""
-
+from pathlib import Path
+import shutil
+import urllib.request
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from pathlib import Path
-import requests
+
 
 class BaseColor(nn.Module):
-    """Base color normalization module."""
-    
-    def __init__(self):
-        super(BaseColor, self).__init__()
-        self.l_cent = 50.
-        self.l_norm = 100.
-        self.ab_norm = 110.
+    """Minimal base class providing LAB normalization helpers."""
 
-    def normalize_l(self, in_l):
+    def __init__(self):
+        super().__init__()
+        self.l_cent = 50.0
+        self.l_norm = 100.0
+        self.ab_norm = 110.0
+
+    def normalize_l(self, in_l: torch.Tensor) -> torch.Tensor:
         return (in_l - self.l_cent) / self.l_norm
 
-    def unnormalize_l(self, in_l):
-        return in_l * self.l_norm + self.l_cent
-
-    def normalize_ab(self, in_ab):
+    def normalize_ab(self, in_ab: torch.Tensor) -> torch.Tensor:
         return in_ab / self.ab_norm
 
-    def unnormalize_ab(self, in_ab):
+    def unnormalize_ab(self, in_ab: torch.Tensor) -> torch.Tensor:
         return in_ab * self.ab_norm
 
-class ImageColorizationModel(BaseColor):
-    """Advanced colorization model with encoder-decoder architecture."""
-    
-    def __init__(self, norm_layer=nn.BatchNorm2d, classes=529):
-        super(ImageColorizationModel, self).__init__()
 
-        # Encoder blocks with progressive feature extraction
-        model1 = [nn.Conv2d(4, 64, kernel_size=3, stride=1, padding=1, bias=True)]
-        model1 += [nn.ReLU(True)]
-        model1 += [nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=True)]
-        model1 += [nn.ReLU(True)]
-        model1 += [norm_layer(64)]
+class VGG16Colorizer(BaseColor):
+    """
+    VGG16-derived colorization network (SIGGRAPH'17) with pretrained weights.
 
-        model2 = [nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=True)]
-        model2 += [nn.ReLU(True)]
-        model2 += [nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True)]
-        model2 += [nn.ReLU(True)]
-        model2 += [norm_layer(128)]
+    The network mirrors the VGG16 backbone (conv1–conv5 blocks) and augments it
+    with dilated convolutions plus decoder/skip connections as described in the
+    SIGGRAPH'17 "Interactive Deep Colorization" paper by Zhang et al.  We embed
+    the original pretrained weights published by the authors so the model works
+    out-of-the-box while keeping the architecture expressed directly here.
+    """
 
-        model3 = [nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1, bias=True)]
-        model3 += [nn.ReLU(True)]
-        model3 += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True)]
-        model3 += [nn.ReLU(True)]
-        model3 += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True)]
-        model3 += [nn.ReLU(True)]
-        model3 += [norm_layer(256)]
+    WEIGHT_URL = "https://colorizers.s3.us-east-2.amazonaws.com/siggraph17-df00044c.pth"
+    WEIGHT_PATH = Path(__file__).parent / "weights" / "vgg16_siggraph17.pth"
 
-        model4 = [nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model4 += [nn.ReLU(True)]
-        model4 += [nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model4 += [nn.ReLU(True)]
-        model4 += [nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model4 += [nn.ReLU(True)]
-        model4 += [norm_layer(512)]
+    def __init__(self, norm_layer: nn.Module = nn.BatchNorm2d, classes: int = 529, pretrained: bool = True):
+        super().__init__()
 
-        # Middle blocks with dilated convolutions
-        model5 = [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model5 += [nn.ReLU(True)]
-        model5 += [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model5 += [nn.ReLU(True)]
-        model5 += [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model5 += [nn.ReLU(True)]
-        model5 += [norm_layer(512)]
+        # Encoder (VGG16-style conv blocks).
+        self.model1 = nn.Sequential(
+            nn.Conv2d(4, 64, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(64),
+        )
 
-        model6 = [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model6 += [nn.ReLU(True)]
-        model6 += [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model6 += [nn.ReLU(True)]
-        model6 += [nn.Conv2d(512, 512, kernel_size=3, dilation=2, stride=1, padding=2, bias=True)]
-        model6 += [nn.ReLU(True)]
-        model6 += [norm_layer(512)]
+        self.model2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(128),
+        )
 
-        model7 = [nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model7 += [nn.ReLU(True)]
-        model7 += [nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model7 += [nn.ReLU(True)]
-        model7 += [nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True)]
-        model7 += [nn.ReLU(True)]
-        model7 += [norm_layer(512)]
+        self.model3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(256),
+        )
 
-        # Decoder blocks with skip connections
-        model8up = [nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=True)]
-        model3short8 = [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True)]
+        self.model4 = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(512),
+        )
 
-        model8 = [nn.ReLU(True)]
-        model8 += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True)]
-        model8 += [nn.ReLU(True)]
-        model8 += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True)]
-        model8 += [nn.ReLU(True)]
-        model8 += [norm_layer(256)]
+        # Dilated conv blocks (conv5 & conv6) retain large receptive field.
+        self.model5 = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            norm_layer(512),
+        )
 
-        model9up = [nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=True)]
-        model2short9 = [nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True)]
+        self.model6 = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+            nn.ReLU(True),
+            norm_layer(512),
+        )
 
-        model9 = [nn.ReLU(True)]
-        model9 += [nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True)]
-        model9 += [nn.ReLU(True)]
-        model9 += [norm_layer(128)]
+        self.model7 = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(512),
+        )
 
-        model10up = [nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1, bias=True)]
-        model1short10 = [nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=True)]
+        # Decoder with skip connections.
+        self.model8up = nn.Sequential(
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=True),
+        )
+        self.model3short8 = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True),
+        )
+        self.model8 = nn.Sequential(
+            nn.ReLU(True),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(256),
+        )
 
-        model10 = [nn.ReLU(True)]
-        model10 += [nn.Conv2d(128, 128, kernel_size=3, dilation=1, stride=1, padding=1, bias=True)]
-        model10 += [nn.LeakyReLU(negative_slope=.2)]
+        self.model9up = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=True),
+        )
+        self.model2short9 = nn.Sequential(
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True),
+        )
+        self.model9 = nn.Sequential(
+            nn.ReLU(True),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(True),
+            norm_layer(128),
+        )
 
-        # Output heads
-        model_class = [nn.Conv2d(256, classes, kernel_size=1, padding=0, dilation=1, stride=1, bias=True)]
-        model_out = [nn.Conv2d(128, 2, kernel_size=1, padding=0, dilation=1, stride=1, bias=True)]
-        model_out += [nn.Tanh()]
+        self.model10up = nn.Sequential(
+            nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1, bias=True),
+        )
+        self.model1short10 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=True),
+        )
+        self.model10 = nn.Sequential(
+            nn.ReLU(True),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(negative_slope=0.2),
+        )
 
-        # Register all modules
-        self.model1 = nn.Sequential(*model1)
-        self.model2 = nn.Sequential(*model2)
-        self.model3 = nn.Sequential(*model3)
-        self.model4 = nn.Sequential(*model4)
-        self.model5 = nn.Sequential(*model5)
-        self.model6 = nn.Sequential(*model6)
-        self.model7 = nn.Sequential(*model7)
-        self.model8up = nn.Sequential(*model8up)
-        self.model8 = nn.Sequential(*model8)
-        self.model9up = nn.Sequential(*model9up)
-        self.model9 = nn.Sequential(*model9)
-        self.model10up = nn.Sequential(*model10up)
-        self.model10 = nn.Sequential(*model10)
-        self.model3short8 = nn.Sequential(*model3short8)
-        self.model2short9 = nn.Sequential(*model2short9)
-        self.model1short10 = nn.Sequential(*model1short10)
-        self.model_class = nn.Sequential(*model_class)
-        self.model_out = nn.Sequential(*model_out)
-        self.upsample4 = nn.Sequential(*[nn.Upsample(scale_factor=4, mode='bilinear')])
-        self.softmax = nn.Sequential(*[nn.Softmax(dim=1)])
+        # Heads
+        self.model_class = nn.Sequential(
+            nn.Conv2d(256, classes, kernel_size=1, stride=1, padding=0, bias=True),
+        )
+        self.model_out = nn.Sequential(
+            nn.Conv2d(128, 2, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.Tanh(),
+        )
 
-    def forward(self, input_A, input_B=None, mask_B=None):
-        if input_B is None:
-            input_B = torch.cat((input_A * 0, input_A * 0), dim=1)
-        if mask_B is None:
-            mask_B = input_A * 0
+        self.softmax = nn.Softmax(dim=1)
+        self.upsample4 = nn.Upsample(scale_factor=4, mode="bilinear", align_corners=False)
 
-        conv1_2 = self.model1(torch.cat((self.normalize_l(input_A), self.normalize_ab(input_B), mask_B), dim=1))
+        if pretrained:
+            state_dict = self._load_pretrained_state()
+            self.load_state_dict(state_dict)
+
+    def _load_pretrained_state(self):
+        """Load weights from local cache, downloading if necessary."""
+
+        weight_path = self.WEIGHT_PATH
+        weight_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not weight_path.exists():
+            print("Downloading VGG16 colorizer weights...")
+            with urllib.request.urlopen(self.WEIGHT_URL) as src, open(weight_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            print(f"✓ Saved weights to {weight_path}")
+
+        state_dict = torch.load(weight_path, map_location="cpu")
+        return state_dict
+
+    def forward(self, input_l: torch.Tensor) -> torch.Tensor:
+        """Forward pass taking only the L channel as input."""
+
+        mask = torch.zeros_like(input_l)
+        input_ab = torch.zeros(input_l.size(0), 2, input_l.size(2), input_l.size(3), device=input_l.device)
+
+        conv1_2 = self.model1(torch.cat((self.normalize_l(input_l), self.normalize_ab(input_ab), mask), dim=1))
         conv2_2 = self.model2(conv1_2[:, :, ::2, ::2])
         conv3_3 = self.model3(conv2_2[:, :, ::2, ::2])
         conv4_3 = self.model4(conv3_3[:, :, ::2, ::2])
@@ -166,76 +204,28 @@ class ImageColorizationModel(BaseColor):
         out_reg = self.model_out(conv10_2)
 
         return self.unnormalize_ab(out_reg)
-    
-    def predict_full_image(self, L_channel):
-        """Predict and return full LAB image."""
-        with torch.no_grad():
-            ab_channels = self.forward(L_channel)
-            lab_image = torch.cat([L_channel, ab_channels], dim=1)
-            return lab_image, ab_channels
 
-def _download_weights():
-    """Download trained model weights if not present."""
-    weights_dir = Path(__file__).parent
-    weights_file = weights_dir / 'best_tiny_imagenet_colorization_model.pth'
-    
-    if not weights_file.exists():
-        # Download from cloud storage
-        url = 'https://colorizers.s3.us-east-2.amazonaws.com/siggraph17-df00044c.pth'
-        try:
-            with requests.get(url, stream=True, timeout=30) as response:
-                response.raise_for_status()
-                with weights_file.open('wb') as f:
-                    for chunk in response.iter_content(chunk_size=1_048_576):
-                        if chunk:
-                            f.write(chunk)
-        except Exception as e:
-            print(f"Warning: Could not download weights: {e}")
-            return None
-    
-    return weights_file
 
-def create_model(pretrained=True, device=None):
-    """Create and initialize the colorization model."""
-    model = ImageColorizationModel()
-    
-    # Auto-detect device if not provided
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    elif isinstance(device, str):
-        device = torch.device(device)
-    
-    # Load trained weights
-    if pretrained:
-        weights_path = _download_weights()
-        if weights_path and weights_path.exists():
-            try:
-                checkpoint = torch.load(weights_path, map_location='cpu')
-                # Handle different checkpoint formats
-                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                    state_dict = checkpoint['model_state_dict']
-                else:
-                    state_dict = checkpoint
-                model.load_state_dict(state_dict, strict=False)
-            except Exception as e:
-                print(f"Note: Using model with random initialization")
-    
-    # Move to device
-    model = model.to(device)
-    
-    if device.type == 'cuda':
-        print(f"Model initialized on GPU: {torch.cuda.get_device_name(0)}")
-    else:
-        print("Model initialized on CPU")
-    
-    return model, device
+def create_model(device: str = "cuda" if torch.cuda.is_available() else "cpu") -> VGG16Colorizer:
+    """Factory that instantiates and sends the VGG16 colorizer to the device."""
 
-def count_parameters(model):
-    """Count the number of trainable parameters."""
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    print(f"Total parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
-    
-    return total_params, trainable_params
+    target_device = torch.device(device)
+    print(f"Loading VGG16 colorizer on {target_device}...")
+    model = VGG16Colorizer(pretrained=True)
+    model = model.to(target_device)
+    model.eval()
+    return model
+
+
+def count_parameters(model: nn.Module):
+    """Return parameter counts for bookkeeping."""
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    return {"trainable": trainable, "frozen": total - trainable, "total": total}
+
+
+if __name__ == "__main__":
+    net = create_model(device="cpu")
+    stats = count_parameters(net)
+    print(stats)
